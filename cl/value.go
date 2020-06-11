@@ -17,14 +17,15 @@
 package cl
 
 import (
+	"go/constant"
+	"go/types"
 	"reflect"
 
-	"github.com/qiniu/goplus/ast/astutil"
 	"github.com/qiniu/goplus/exec.spec"
 	"github.com/qiniu/x/log"
 )
 
-type iKind = astutil.ConstKind
+//type iKind = types.BasicKind
 
 // iValue represents a Go+ value(s).
 //  - *goFunc
@@ -34,7 +35,7 @@ type iKind = astutil.ConstKind
 //  - *funcResult
 type iValue interface {
 	Type() reflect.Type
-	Kind() iKind
+	//Kind() iKind
 	Value(i int) iValue
 	NumValues() int
 }
@@ -49,9 +50,11 @@ type goValue struct {
 	t reflect.Type
 }
 
+/*
 func (p *goValue) Kind() iKind {
 	return p.t.Kind()
 }
+*/
 
 func (p *goValue) Type() reflect.Type {
 	return p.t
@@ -71,9 +74,10 @@ type nonValue struct {
 	v interface{} // *exec.GoPackage, goInstr, iType, etc.
 }
 
+/*
 func (p *nonValue) Kind() iKind {
 	return reflect.Invalid
-}
+}*/
 
 func (p *nonValue) Type() reflect.Type {
 	return nil
@@ -100,12 +104,14 @@ func (p *wrapValue) Type() reflect.Type {
 	return p.x.Value(0).Type()
 }
 
+/*
 func (p *wrapValue) Kind() iKind {
 	if p.x.NumValues() != 2 {
 		panic("don't call me")
 	}
 	return p.x.Value(0).Kind()
 }
+*/
 
 func (p *wrapValue) NumValues() int {
 	return p.x.NumValues() - 1
@@ -121,9 +127,11 @@ type funcResults struct {
 	tfn reflect.Type
 }
 
+/*
 func (p *funcResults) Kind() iKind {
 	panic("don't call me")
 }
+*/
 
 func (p *funcResults) Type() reflect.Type {
 	panic("don't call me")
@@ -156,9 +164,11 @@ func (p *qlFunc) FuncInfo() exec.FuncInfo {
 	return ((*funcDecl)(p)).Get()
 }
 
+/*
 func (p *qlFunc) Kind() iKind {
 	return reflect.Func
 }
+*/
 
 func (p *qlFunc) Type() reflect.Type {
 	return ((*funcDecl)(p)).Type()
@@ -202,9 +212,11 @@ func newGoFunc(addr uint32, kind exec.SymbolKind, isMethod int, ctx *blockCtx) *
 	return &goFunc{t: t, addr: addr, kind: kind, isMethod: isMethod}
 }
 
+/*
 func (p *goFunc) Kind() iKind {
 	return reflect.Func
 }
+*/
 
 func (p *goFunc) Type() reflect.Type {
 	return p.t
@@ -228,29 +240,34 @@ func (p *goFunc) Proto() iFuncType {
 
 // -----------------------------------------------------------------------------
 
+/*
 // isConstBound checks a const is bound or not.
 func isConstBound(kind astutil.ConstKind) bool {
 	return kind <= reflect.UnsafePointer
 }
+*/
 
 type constVal struct {
-	v       interface{}
-	kind    iKind
+	typ     types.Type
+	val     constant.Value
 	reserve exec.Reserved
 }
 
-func newConstVal(v interface{}, kind iKind) *constVal {
-	return &constVal{v: v, kind: kind, reserve: exec.InvalidReserved}
+func newConstVal(v constant.Value, typ types.Type) *constVal {
+	return &constVal{val: v, typ: typ, reserve: exec.InvalidReserved}
 }
 
+/*
 func (p *constVal) Kind() iKind {
 	return p.kind
 }
+*/
 
 func (p *constVal) Type() reflect.Type {
-	if isConstBound(p.kind) {
-		return exec.TypeFromKind(p.kind)
-	}
+	/*	if isConstBound(p.kind) {
+			return exec.TypeFromKind(p.kind)
+		}
+	*/
 	panic("don't call constVal.TypeOf: unbounded")
 }
 
@@ -262,6 +279,7 @@ func (p *constVal) Value(i int) iValue {
 	return p
 }
 
+/*
 func (p *constVal) boundKind() reflect.Kind {
 	if isConstBound(p.kind) {
 		return p.kind
@@ -439,5 +457,6 @@ func boundElementType(elts []interface{}, base, max, step int) reflect.Type {
 	}
 	return exec.TypeFromKind(kindBound)
 }
+*/
 
 // -----------------------------------------------------------------------------

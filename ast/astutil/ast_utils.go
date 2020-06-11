@@ -20,9 +20,7 @@ import (
 	"strconv"
 
 	"github.com/qiniu/goplus/ast"
-	"github.com/qiniu/goplus/ast/spec"
 	"github.com/qiniu/goplus/token"
-	"github.com/qiniu/x/log"
 )
 
 // -----------------------------------------------------------------------------
@@ -40,6 +38,7 @@ func ToString(l *ast.BasicLit) string {
 
 // -----------------------------------------------------------------------------
 
+/*
 // A ConstKind represents the specific kind of type that a Type represents.
 // The zero Kind is not a valid kind.
 type ConstKind = spec.ConstKind
@@ -99,6 +98,7 @@ func ToConst(v *ast.BasicLit) (ConstKind, interface{}) {
 	log.Fatalln("ToConst: unknown -", v)
 	return 0, nil
 }
+*/
 
 // -----------------------------------------------------------------------------
 
