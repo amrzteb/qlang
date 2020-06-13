@@ -30,4 +30,8 @@ gop_autogen.go
 *.prof
 
 .vscode
+<<<<<<< HEAD
 qast
+=======
+.idea
+>>>>>>> 5a47a383bee46dedd39f7a28821f2d34b7cb99ab

@@ -26,37 +26,60 @@ import (
 	exec "github.com/qiniu/goplus/exec.spec"
 )
 
+const (
+	OpNot       = OpLNot
+	OpDiv       = OpQuo
+	OpBitAnd    = OpAnd
+	OpBitOr     = OpOr
+	OpBitXor    = OpXor
+	OpBitAndNot = OpAndNot
+	OpBitSHL    = OpLsh
+	OpBitSHR    = OpRsh
+
+	OpDivAssign       = OpQuoAssign
+	OpBitAndAssign    = OpAndAssign
+	OpBitOrAssign     = OpOrAssign
+	OpBitXorAssign    = OpXorAssign
+	OpBitAndNotAssign = OpAndNotAssign
+	OpBitSHLAssign    = OpLshAssign
+	OpBitSHRAssign    = OpRshAssign
+)
+
 // -----------------------------------------------------------------------------
 
 var opAutogenOps = [...]string{
-	OpAdd:       "Add",
-	OpSub:       "Sub",
-	OpMul:       "Mul",
-	OpDiv:       "Div",
-	OpMod:       "Mod",
-	OpBitAnd:    "BitAnd",
-	OpBitOr:     "BitOr",
-	OpBitXor:    "BitXor",
-	OpBitAndNot: "BitAndNot",
-	OpBitSHL:    "BitSHL",
-	OpBitSHR:    "BitSHR",
-	OpLT:        "LT",
-	OpLE:        "LE",
-	OpGT:        "GT",
-	OpGE:        "GE",
-	OpEQ:        "EQ",
-	OpNE:        "NE",
-	OpLAnd:      "LAnd",
-	OpLOr:       "LOr",
-	OpNeg:       "Neg",
-	OpNot:       "Not",
-	OpBitNot:    "BitNot",
+	OpAdd:    "Add",
+	OpSub:    "Sub",
+	OpMul:    "Mul",
+	OpQuo:    "Quo",
+	OpMod:    "Mod",
+	OpAnd:    "And",
+	OpOr:     "Or",
+	OpXor:    "Xor",
+	OpAndNot: "AndNot",
+	OpLsh:    "Lsh",
+	OpRsh:    "Rsh",
+	OpLT:     "LT",
+	OpLE:     "LE",
+	OpGT:     "GT",
+	OpGE:     "GE",
+	OpEQ:     "EQ",
+	OpNE:     "NE",
+	OpLAnd:   "LAnd",
+	OpLOr:    "LOr",
+	OpLNot:   "LNot",
+	OpNeg:    "Neg",
+	OpBitNot: "BitNot",
 }
 
 const autogenOpHeader = `package bytecode
+
+import (
+	"math/big"
+)
 `
 
-const autogenBinaryOpUintTempl = `
+const autogenStdBinaryOpUintTempl = `
 func exec$Op$Type(i Instr, p *Context) {
 	n := len(p.data)
 	p.data[n-2] = p.data[n-2].($type) $op toUint(p.data[n-1])
@@ -64,7 +87,20 @@ func exec$Op$Type(i Instr, p *Context) {
 }
 `
 
-const autogenBinaryOpTempl = `
+const autogenBigBinaryOpUintTempl = `
+func exec$Op$Type(i Instr, p *Context) {
+	n := len(p.data)
+	p.data[n-2] = new($type).$Op(p.data[n-2].(*$type), toUint(p.data[n-1]))
+	p.data = p.data[:n-1]
+}
+`
+
+var autogenBinaryOpUintTempl = [2]string{
+	autogenStdBinaryOpUintTempl,
+	autogenBigBinaryOpUintTempl,
+}
+
+const autogenStdBinaryOpTempl = `
 func exec$Op$Type(i Instr, p *Context) {
 	n := len(p.data)
 	p.data[n-2] = p.data[n-2].($type) $op p.data[n-1].($type)
@@ -72,41 +108,102 @@ func exec$Op$Type(i Instr, p *Context) {
 }
 `
 
-const autogenUnaryOpTempl = `
+const autogenBigBinaryOpTempl = `
+func exec$Op$Type(i Instr, p *Context) {
+	n := len(p.data)
+	p.data[n-2] = new($type).$Op(p.data[n-2].(*$type), p.data[n-1].(*$type))
+	p.data = p.data[:n-1]
+}
+`
+
+const autogenBigBoolBinaryOpTempl = `
+func exec$Op$Type(i Instr, p *Context) {
+	n := len(p.data)
+	p.data[n-2] = p.data[n-2].(*$type).Cmp(p.data[n-1].(*$type)) $op 0
+	p.data = p.data[:n-1]
+}
+`
+
+var autogenBinaryOpTempl = [2]string{
+	autogenStdBinaryOpTempl,
+	autogenBigBinaryOpTempl,
+}
+
+var autogenBoolOpTempl = [2]string{
+	autogenStdBinaryOpTempl,
+	autogenBigBoolBinaryOpTempl,
+}
+
+const autogenStdUnaryOpTempl = `
 func exec$Op$Type(i Instr, p *Context) {
 	n := len(p.data)
 	p.data[n-1] = $opp.data[n-1].($type)
 }
 `
 
-const autogenBuiltinOpHeader = `
-var builtinOps = [...]func(i Instr, p *Context){`
+const autogenBigUnaryOpTempl = `
+func exec$Op$Type(i Instr, p *Context) {
+	n := len(p.data)
+	p.data[n-1] = new($type).$Op(p.data[n-1].(*$type))
+}
+`
 
-const autogenBuiltinOpItemTempl = `
+const autogenBigNotTempl = `
+func exec$Op$Type(i Instr, p *Context) {
+	n := len(p.data)
+	p.data[n-1] = new($type).Not(p.data[n-1].(*$type))
+}
+`
+
+var autogenUnaryOpTempl = [2]string{
+	autogenStdUnaryOpTempl,
+	autogenBigUnaryOpTempl,
+}
+
+const autogenBuiltinOpHeader = `
+var builtinOps = [...]func(i Instr, p *Context){
+	(int(BigInt) << bitsOperator) | int(OpQuo): execQuoBigInt,`
+
+const autogenStdBuiltinOpItemTempl = `
 	(int($Type) << bitsOperator) | int(Op$Op): exec$Op$Type,`
+
+var autogenBuiltinOpItemTempl = [2]string{
+	autogenStdBuiltinOpItemTempl,
+	autogenStdBuiltinOpItemTempl,
+}
 
 const autogenBuiltinOpFooter = `
 }
 `
 
-func autogenOpWithTempl(f *os.File, op Operator, Op string, templ string) {
+func autogenOpWithTempl(f *os.File, op Operator, Op string, templ *[2]string) {
 	i := op.GetInfo()
-	if templ == "" {
-		templ = autogenBinaryOpTempl
+	if templ == nil {
+		templ = &autogenBinaryOpTempl
 		if i.InSecond == exec.BitNone {
-			templ = autogenUnaryOpTempl
+			templ = &autogenUnaryOpTempl
 		} else if i.InSecond == exec.BitsAllIntUint {
-			templ = autogenBinaryOpUintTempl
+			templ = &autogenBinaryOpUintTempl
+		} else if i.Out == Bool && i.InFirst != (1<<Bool) {
+			templ = &autogenBoolOpTempl
 		}
 	}
-	for kind := Bool; kind <= UnsafePointer; kind++ {
+	for kind := Bool; kind <= BigFloat; kind++ {
 		if (i.InFirst & (1 << kind)) == 0 {
 			continue
 		}
 		typ := exec.TypeFromKind(kind).String()
-		Typ := strings.Title(typ)
+		Typ, tpl := typ, templ[0]
+		if strings.HasPrefix(typ, "*") { // *Big.Int, *Big.Rat, *Big.Float
+			Typ, tpl = typ[1:4]+typ[5:], templ[1]
+			typ = typ[1:]
+			if templ == &autogenUnaryOpTempl && Op == "BitNot" {
+				tpl = autogenBigNotTempl
+			}
+		}
+		Typ = strings.Title(Typ)
 		repl := strings.NewReplacer("$Op", Op, "$op", i.Lit, "$Type", Typ, "$type", typ)
-		text := repl.Replace(templ)
+		text := repl.Replace(tpl)
 		fmt.Fprint(f, text)
 	}
 }
@@ -121,31 +218,35 @@ func _TestOpAutogen(t *testing.T) {
 	fmt.Fprint(f, autogenBuiltinOpHeader)
 	for i, Op := range opAutogenOps {
 		if Op != "" {
-			autogenOpWithTempl(f, Operator(i), Op, autogenBuiltinOpItemTempl)
+			autogenOpWithTempl(f, Operator(i), Op, &autogenBuiltinOpItemTempl)
 		}
 	}
 	fmt.Fprint(f, autogenBuiltinOpFooter)
 	for i, Op := range opAutogenOps {
 		if Op != "" {
-			autogenOpWithTempl(f, Operator(i), Op, "")
+			autogenOpWithTempl(f, Operator(i), Op, nil)
 		}
 	}
 }
 
 func newKindValue(kind Kind) reflect.Value {
 	t := exec.TypeFromKind(kind)
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
 	o := reflect.New(t).Elem()
 	if kind >= Int && kind <= Int64 {
 		o.SetInt(1)
-	}
-	if kind >= Uint && kind <= Uintptr {
+	} else if kind >= Uint && kind <= Uintptr {
 		o.SetUint(1)
-	}
-	if kind >= Float32 && kind <= Float64 {
+	} else if kind >= Float32 && kind <= Float64 {
 		o.SetFloat(1.0)
-	}
-	if kind >= Complex64 && kind <= Complex128 {
+	} else if kind >= Complex64 && kind <= Complex128 {
 		o.SetComplex(1.0)
+	} else if kind > UnsafePointer {
+		x := reflect.ValueOf(int64(1))
+		o = o.Addr()
+		o.MethodByName("SetInt64").Call([]reflect.Value{x})
 	}
 	return o
 }
@@ -170,25 +271,29 @@ func TestExecAutogenOp(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 var opAutogenAddrOps = [...]string{
-	OpAddAssign:       "AddAssign",
-	OpSubAssign:       "SubAssign",
-	OpMulAssign:       "MulAssign",
-	OpDivAssign:       "DivAssign",
-	OpModAssign:       "ModAssign",
-	OpBitAndAssign:    "BitAndAssign",
-	OpBitOrAssign:     "BitOrAssign",
-	OpBitXorAssign:    "BitXorAssign",
-	OpBitAndNotAssign: "BitAndNotAssign",
-	OpBitSHLAssign:    "BitSHLAssign",
-	OpBitSHRAssign:    "BitSHRAssign",
-	OpInc:             "Inc",
-	OpDec:             "Dec",
+	OpAddAssign:    "AddAssign",
+	OpSubAssign:    "SubAssign",
+	OpMulAssign:    "MulAssign",
+	OpQuoAssign:    "QuoAssign",
+	OpModAssign:    "ModAssign",
+	OpAndAssign:    "AndAssign",
+	OpOrAssign:     "OrAssign",
+	OpXorAssign:    "XorAssign",
+	OpAndNotAssign: "AndNotAssign",
+	OpLshAssign:    "LshAssign",
+	OpRshAssign:    "RshAssign",
+	OpInc:          "Inc",
+	OpDec:          "Dec",
 }
 
 const autogenAddrOpHeader = `package bytecode
+
+import (
+	"math/big"
+)
 `
 
-const autogenBinaryAddrOpUintTempl = `
+const autogenStdBinaryAddrOpUintTempl = `
 func exec$Op$Type(i Instr, p *Context) {
 	n := len(p.data)
 	*p.data[n-1].(*$type) $op toUint(p.data[n-2])
@@ -196,7 +301,21 @@ func exec$Op$Type(i Instr, p *Context) {
 }
 `
 
-const autogenBinaryAddrOpTempl = `
+const autogenBigBinaryAddrOpUintTempl = `
+func exec$Op$Type(i Instr, p *Context) {
+	n := len(p.data)
+	x := p.data[n-1].(*$type)
+	x.$OP(x, toUint(p.data[n-2]))
+	p.data = p.data[:n-2]
+}
+`
+
+var autogenBinaryAddrOpUintTempl = [2]string{
+	autogenStdBinaryAddrOpUintTempl,
+	autogenBigBinaryAddrOpUintTempl,
+}
+
+const autogenStdBinaryAddrOpTempl = `
 func exec$Op$Type(i Instr, p *Context) {
 	n := len(p.data)
 	*p.data[n-1].(*$type) $op p.data[n-2].($type)
@@ -204,7 +323,21 @@ func exec$Op$Type(i Instr, p *Context) {
 }
 `
 
-const autogenUnaryAddrOpTempl = `
+const autogenBigBinaryAddrOpTempl = `
+func exec$Op$Type(i Instr, p *Context) {
+	n := len(p.data)
+	x := p.data[n-1].(*$type)
+	x.$OP(x, p.data[n-2].(*$type))
+	p.data = p.data[:n-2]
+}
+`
+
+var autogenBinaryAddrOpTempl = [2]string{
+	autogenStdBinaryAddrOpTempl,
+	autogenBigBinaryAddrOpTempl,
+}
+
+const autogenStdUnaryAddrOpTempl = `
 func exec$Op$Type(i Instr, p *Context) {
 	n := len(p.data)
 	(*p.data[n-1].(*$type))$op
@@ -212,37 +345,75 @@ func exec$Op$Type(i Instr, p *Context) {
 }
 `
 
+const autogenBigUnaryAddrOpTempl = `
+func exec$Op$Type(i Instr, p *Context) {
+	n := len(p.data)
+	x := p.data[n-1].(*$type)
+	x.$OP(x, $one)
+	p.data = p.data[:n-1]
+}
+`
+
+var autogenUnaryAddrOpTempl = [2]string{
+	autogenStdUnaryAddrOpTempl,
+	autogenBigUnaryAddrOpTempl,
+}
+
 const autogenBuiltinAddrOpHeader = `
 var builtinAddrOps = [...]func(i Instr, p *Context){`
 
-const autogenBuiltinAddrOpItemTempl = `
+const autogenStdBuiltinAddrOpItemTempl = `
 	(int(Op$Op) << bitsKind) | int($Type): exec$Op$Type,`
+
+var autogenBuiltinAddrOpItemTempl = [2]string{
+	autogenStdBuiltinAddrOpItemTempl,
+	autogenStdBuiltinAddrOpItemTempl,
+}
 
 const autogenBuiltinAddrOpFooter = `
 }
 `
 
-func autogenAddrOpWithTempl(f *os.File, op AddrOperator, Op string, templ string) {
+func autogenAddrOpWithTempl(f *os.File, op AddrOperator, Op string, templ *[2]string) {
 	i := op.GetInfo()
-	if templ == "" {
-		templ = autogenBinaryAddrOpTempl
+	if templ == nil {
+		templ = &autogenBinaryAddrOpTempl
 		if i.InSecond == exec.BitNone {
-			templ = autogenUnaryAddrOpTempl
+			templ = &autogenUnaryAddrOpTempl
 		} else if i.InSecond == exec.BitsAllIntUint {
-			templ = autogenBinaryAddrOpUintTempl
+			templ = &autogenBinaryAddrOpUintTempl
 		}
 	}
-	for kind := Bool; kind <= UnsafePointer; kind++ {
+	for kind := Bool; kind <= BigFloat; kind++ {
 		if (i.InFirst & (1 << kind)) == 0 {
 			continue
 		}
 		typ := exec.TypeFromKind(kind).String()
-		Typ := strings.Title(typ)
-		repl := strings.NewReplacer("$Op", Op, "$op", i.Lit, "$Type", Typ, "$type", typ)
-		text := repl.Replace(templ)
+		Typ, tpl, one := typ, templ[0], "1"
+		if strings.HasPrefix(typ, "*") { // *Big.Int, *Big.Rat, *Big.Float
+			Typ, tpl = typ[1:4]+typ[5:], templ[1]
+			typ = typ[1:]
+			one = ones[kind-BigInt]
+		}
+		Typ = strings.Title(Typ)
+		Op2 := "Add"
+		if i.InSecond == exec.BitNone {
+			if i.Lit == "--" {
+				Op2 = "Sub"
+			}
+		} else {
+			Op2 = strings.TrimSuffix(Op, "Assign")
+		}
+		repl := strings.NewReplacer(
+			"$Op", Op, "$OP", Op2, "$one", one, "$op", i.Lit, "$Type", Typ, "$type", typ)
+		text := repl.Replace(tpl)
 		fmt.Fprint(f, text)
 	}
 }
+
+var (
+	ones = [3]string{"bigIntOne", "bigRatOne", "bigFloatOne"}
+)
 
 func _TestAddrOpAutogen(t *testing.T) {
 	f, err := os.Create("exec_addrop_autogen.go")
@@ -254,13 +425,13 @@ func _TestAddrOpAutogen(t *testing.T) {
 	fmt.Fprint(f, autogenBuiltinAddrOpHeader)
 	for i, Op := range opAutogenAddrOps {
 		if Op != "" {
-			autogenAddrOpWithTempl(f, AddrOperator(i), Op, autogenBuiltinAddrOpItemTempl)
+			autogenAddrOpWithTempl(f, AddrOperator(i), Op, &autogenBuiltinAddrOpItemTempl)
 		}
 	}
 	fmt.Fprint(f, autogenBuiltinAddrOpFooter)
 	for i, Op := range opAutogenAddrOps {
 		if Op != "" {
-			autogenAddrOpWithTempl(f, AddrOperator(i), Op, "")
+			autogenAddrOpWithTempl(f, AddrOperator(i), Op, nil)
 		}
 	}
 }
@@ -276,9 +447,13 @@ func TestExecAutogenAddrOp(t *testing.T) {
 		}
 		op := AddrOperator(i >> bitsKind)
 		kind := Kind(i & ((1 << bitsKind) - 1))
+		addr := newKindValue(kind)
+		if kind < BigInt {
+			addr = addr.Addr()
+		}
 		vars := []interface{}{
 			newKindValue(kind).Interface(),
-			newKindValue(kind).Addr().Interface(),
+			addr.Interface(),
 		}
 		CallAddrOp(kind, op, vars...)
 		callExecAddrOp(kind, op, vars...)

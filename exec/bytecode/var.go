@@ -37,23 +37,23 @@ const (
 	OpSubAssign = exec.OpSubAssign
 	// OpMulAssign `*=`
 	OpMulAssign = exec.OpMulAssign
-	// OpDivAssign `/=`
-	OpDivAssign = exec.OpDivAssign
+	// OpQuoAssign `/=`
+	OpQuoAssign = exec.OpQuoAssign
 	// OpModAssign `%=`
 	OpModAssign = exec.OpModAssign
 
-	// OpBitAndAssign '&='
-	OpBitAndAssign = exec.OpBitAndAssign
-	// OpBitOrAssign '|='
-	OpBitOrAssign = exec.OpBitOrAssign
-	// OpBitXorAssign '^='
-	OpBitXorAssign = exec.OpBitXorAssign
-	// OpBitAndNotAssign '&^='
-	OpBitAndNotAssign = exec.OpBitAndNotAssign
-	// OpBitSHLAssign '<<='
-	OpBitSHLAssign = exec.OpBitSHLAssign
-	// OpBitSHRAssign '>>='
-	OpBitSHRAssign = exec.OpBitSHRAssign
+	// OpAndAssign '&='
+	OpAndAssign = exec.OpAndAssign
+	// OpOrAssign '|='
+	OpOrAssign = exec.OpOrAssign
+	// OpXorAssign '^='
+	OpXorAssign = exec.OpXorAssign
+	// OpAndNotAssign '&^='
+	OpAndNotAssign = exec.OpAndNotAssign
+	// OpLshAssign '<<='
+	OpLshAssign = exec.OpLshAssign
+	// OpRshAssign '>>='
+	OpRshAssign = exec.OpRshAssign
 	// OpAssign `=`
 	OpAssign = exec.OpAssign
 	// OpInc '++'
@@ -350,6 +350,9 @@ func (p *Builder) StoreVar(v *Var) *Builder {
 
 // AddrVar instr
 func (p *Builder) AddrVar(v *Var) *Builder {
+	if v.Type().Kind() == reflect.Ptr {
+		return p.LoadVar(v)
+	}
 	p.addrVar(makeAddr(p.nestDepth-v.nestDepth, v.idx))
 	return p
 }
