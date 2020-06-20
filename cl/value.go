@@ -40,9 +40,18 @@ type iValue interface {
 	NumValues() int
 }
 
+/*
 func isBool(v iValue) bool {
 	return v.NumValues() == 1 && v.Type() == exec.TyBool
 }
+
+func boundType(in iValue) reflect.Type {
+	if v, ok := in.(*constVal); ok {
+		return v.boundType()
+	}
+	return in.Type()
+}
+*/
 
 // -----------------------------------------------------------------------------
 
@@ -301,13 +310,6 @@ func (p *constVal) boundKind() reflect.Kind {
 
 func (p *constVal) boundType() reflect.Type {
 	return exec.TypeFromKind(p.boundKind())
-}
-
-func boundType(in iValue) reflect.Type {
-	if v, ok := in.(*constVal); ok {
-		return v.boundType()
-	}
-	return in.Type()
 }
 
 func (p *constVal) bound(t reflect.Type, b exec.Builder) {

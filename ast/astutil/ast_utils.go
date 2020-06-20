@@ -17,9 +17,7 @@
 package astutil
 
 import (
-	"math/big"
 	"strconv"
-	"strings"
 
 	"github.com/qiniu/goplus/ast"
 	"github.com/qiniu/goplus/token"
