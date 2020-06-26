@@ -1,5 +1,5 @@
 /*
- Copyright 2020 Qiniu Cloud (qiniu.com)
+ Copyright 2020 The GoPlus Authors (goplus.org)
 
  Licensed under the Apache License, Version 2.0 (the "License");
  you may not use this file except in compliance with the License.
@@ -22,10 +22,12 @@ import (
 	"testing"
 
 	"github.com/qiniu/goplus/ast/asttest"
+	"github.com/qiniu/goplus/gop"
 	"github.com/qiniu/goplus/parser"
 	"github.com/qiniu/goplus/token"
 
 	exec "github.com/qiniu/goplus/exec/bytecode"
+	libbuiltin "github.com/qiniu/goplus/lib/builtin"
 )
 
 // -----------------------------------------------------------------------------
@@ -227,10 +229,6 @@ var fsTestSw3 = asttest.NewSingleFileFS("/foo", "bar.gop", `
 	switch t {
 	default:
 		x = 7
-	case "world", "hi":
-		x = 5
-	case "xsw":
-		x = 3
 	}
 	x
 `)
@@ -572,10 +570,10 @@ func TestClosurev(t *testing.T) {
 
 var fsTestForPhraseStmt = asttest.NewSingleFileFS("/foo", "bar.gop", `
 	sum := 0
-	for x <- [1, 3, 5, 7], x < 7 {
+	for x <- [1, 3, 5, 7, 11, 13, 17], x > 3 {
 		sum += x
 	}
-	println("sum(1,3,5):", sum)
+	sum
 `)
 
 func TestForPhraseStmt(t *testing.T) {
@@ -595,18 +593,48 @@ func TestForPhraseStmt(t *testing.T) {
 
 	ctx := exec.NewContext(code)
 	ctx.Exec(0, code.Len())
-	fmt.Println("results:", ctx.Get(-2), ctx.Get(-1))
-	if v := ctx.Get(-1); v != nil {
-		t.Fatal("error:", v)
-	}
-	if v := ctx.Get(-2); v != int(14) {
-		t.Fatal("n:", v)
+	if v := ctx.Get(-1); v != 53 {
+		t.Fatal("v:", v)
 	}
 }
 
 // -----------------------------------------------------------------------------
 
 var fsTestForPhraseStmt2 = asttest.NewSingleFileFS("/foo", "bar.gop", `
+	sum := 0
+	for x <- [1, 3, 5, 7, 11, 13, 17] {
+		if x > 3 {
+			sum += x
+		}
+	}
+	sum
+`)
+
+func TestForPhraseStmt2(t *testing.T) {
+	fset := token.NewFileSet()
+	pkgs, err := parser.ParseFSDir(fset, fsTestForPhraseStmt2, "/foo", nil, 0)
+	if err != nil || len(pkgs) != 1 {
+		t.Fatal("ParseFSDir failed:", err, len(pkgs))
+	}
+
+	bar := pkgs["main"]
+	b := exec.NewBuilder(nil)
+	_, noExecCtx, err := newPackage(b, bar, fset)
+	if err != nil || !noExecCtx {
+		t.Fatal("Compile failed:", err)
+	}
+	code := b.Resolve()
+
+	ctx := exec.NewContext(code)
+	ctx.Exec(0, code.Len())
+	if v := ctx.Get(-1); v != 53 {
+		t.Fatal("v:", v)
+	}
+}
+
+// -----------------------------------------------------------------------------
+
+var fsTestForPhraseStmt3 = asttest.NewSingleFileFS("/foo", "bar.gop", `
 	fns := make([]func() int, 3)
 	for i, x <- [3, 15, 777] {
 		v := x
@@ -617,9 +645,9 @@ var fsTestForPhraseStmt2 = asttest.NewSingleFileFS("/foo", "bar.gop", `
 	println("values:", fns[0](), fns[1](), fns[2]())
 `)
 
-func TestForPhraseStmt2(t *testing.T) {
+func TestForPhraseStmt3(t *testing.T) {
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseFSDir(fset, fsTestForPhraseStmt2, "/foo", nil, 0)
+	pkgs, err := parser.ParseFSDir(fset, fsTestForPhraseStmt3, "/foo", nil, 0)
 	if err != nil || len(pkgs) != 1 {
 		t.Fatal("ParseFSDir failed:", err, len(pkgs))
 	}
@@ -645,19 +673,145 @@ func TestForPhraseStmt2(t *testing.T) {
 
 // -----------------------------------------------------------------------------
 
-var fsTestForRangeStmt = asttest.NewSingleFileFS("/foo", "bar.gop", `
+type testData struct {
+	clause string
+	wants  []string
+}
+
+var testForRangeClauses = map[string]testData{
+	"no_kv_range_list": {`sum:=0
+					for range [1,3,5,7] {
+						sum++
+					}
+					println(sum)
+					`, []string{"4"}},
+	"no_kv_range_map": {`sum:=0
+					for range {1:1,2:2,3:3} {
+						sum++
+					}
+					println(sum)
+					`, []string{"3"}},
+	"only_k_range_list": {`sum:=0
+					for k :=range [1,3,5,7]{
+						sum+=k
+					}
+					println(sum)
+					`, []string{"6"}},
+	"only_k_range_map": {`sum:=0
+					for k :=range {1:1,2:4,3:8,4:16}{
+						sum+=k
+					}
+					println(sum)
+					`, []string{"10"}},
+	"only_v_range_list": {`sum:=0
+					for _,v :=range [1,3,5,7]{
+						sum+=v
+					}
+					println(sum)
+					`, []string{"16"}},
+	"only_v_range_map": {`sum:=0
+					for _,v :=range {1:1,2:4,3:8,4:16}{
+						sum+=v
+					}
+					println(sum)
+					`, []string{"29"}},
+	"both_kv_range_list": {`sum:=0
+					for k,v:=range [1,3,5,7]{
+						// 0*1+1*3+2*5+3*7
+						sum+=k*v
+					}
+					println(sum)
+					`, []string{"34"}},
+	"both_kv_range_map": {`sum:=0
+					m:={1:2,2:4,3:8}
+					for k,v:=range m { 
+						//1*2+2*4+3*8=34
+						sum+=k*v
+					}
+					println(sum)
+					`, []string{"34"}},
+	"both_kv_assign_simple_range": {` sum:=0
+					k,v:=0,0
+					for k,v=range [1,2,3,4,5]{
+						sum+=k+v
+					}
+					println(k)
+					println(v)
+					println(sum)
+					`, []string{"4", "5", "25"}},
+	"both_kv_assign_range_list": {` sum:=0
+					m:={1:2,2:4,3:8}
+					arr:=[11,22]
+					for m[1],m[2]=range arr{
+					    sum+=m[1]+m[2]
+					}
+					println(m[1])
+					println(m[2])
+					println(sum)
+					`, []string{"1", "22", "34"}},
+	"both_kv_assign_range_map": {` sum:=0
+					m:={3:8}
+					arr:=[11,22]
+					for arr[0],arr[1]=range m{
+					    sum+=arr[0]+arr[1]
+					}
+					println(arr[0])
+					println(arr[1])
+					println(sum)
+					`, []string{"3", "8", "11"}},
+	"only_v_assign_range": {` sum:=0
+					m:={3:8}
+					arr:=[11,22]
+					for _,arr[1]=range m{
+					    sum+=arr[0]+arr[1]
+					}
+					println(arr[0])
+					println(arr[1])
+					println(sum)
+					`, []string{"11", "8", "19"}},
+	"only_k_assign_range": {` sum:=0
+					m:={3:8}
+					arr:=[11,22]
+					for arr[0],_=range m{
+					    sum+=arr[0]+arr[1]
+					}
+					println(arr[0])
+					println(arr[1])
+					println(sum)
+					`, []string{"3", "22", "25"}},
+	"none_kv_assign_range": {` sum:=0
+					m:={3:8}
+					arr:=[11,22]
+					for _,_=range m{
+					    sum+=arr[0]+arr[1]
+					}
+					println(arr[0])
+					println(arr[1])
+					println(sum)
+					`, []string{"11", "22", "33"}},
+}
+
+func TestRangeStmt(t *testing.T) {
+	for name, clause := range testForRangeClauses {
+		testForRangeStmt(name, t, asttest.NewSingleFileFS("/foo", "bar.gop", clause.clause), clause.wants)
+	}
+}
+
+// -----------------------------------------------------------------------------
+
+var fsTestRangeStmt2 = asttest.NewSingleFileFS("/foo", "bar.gop", `
 	sum := 0
-	for x := range [1, 3, 5, 7] {
-		if x < 7 {
+	for _, x := range [1, 3, 5, 7, 11, 13, 17] {
+		if x > 3 {
 			sum += x
 		}
 	}
-	println("sum(1,3,5):", sum)
+	sum
 `)
 
-func _TestForRangeStmt(t *testing.T) {
+func TestRangeStmt2(t *testing.T) {
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseFSDir(fset, fsTestForRangeStmt, "/foo", nil, 0)
+	pkgs, err := parser.ParseFSDir(fset, fsTestRangeStmt2, "/foo", nil, 0)
 	if err != nil || len(pkgs) != 1 {
 		t.Fatal("ParseFSDir failed:", err, len(pkgs))
 	}
@@ -666,6 +820,43 @@ func _TestForRangeStmt(t *testing.T) {
 	b := exec.NewBuilder(nil)
 	_, noExecCtx, err := newPackage(b, bar, fset)
 	if err != nil || !noExecCtx {
+		t.Fatal("Compile failed:", err, "noExecCtx:", noExecCtx)
+	}
+	code := b.Resolve()
+
+	ctx := exec.NewContext(code)
+	ctx.Exec(0, code.Len())
+	if v := ctx.Get(-1); v != 53 {
+		t.Fatal("v:", v)
+	}
+}
+
+// -----------------------------------------------------------------------------
+
+var fsTestForStmt = asttest.NewSingleFileFS("/foo", "bar.gop", `
+	fns := make([]func() int, 3)
+	arr := [3, 15, 777]
+	sum := 0
+	for i := 0; i < len(arr); i++ {
+		v := arr[i]
+		fns[i] = func() int {
+			return v
+		}
+	}
+	println("values:", fns[0](), fns[1](), fns[2]())
+`)
+
+func _TestForStmt(t *testing.T) {
+	fset := token.NewFileSet()
+	pkgs, err := parser.ParseFSDir(fset, fsTestForStmt, "/foo", nil, 0)
+	if err != nil || len(pkgs) != 1 {
+		t.Fatal("ParseFSDir failed:", err, len(pkgs))
+	}
+
+	bar := pkgs["main"]
+	b := exec.NewBuilder(nil)
+	_, noExecCtx, err := newPackage(b, bar, fset)
+	if err != nil || noExecCtx {
 		t.Fatal("Compile failed:", err)
 	}
 	code := b.Resolve()
@@ -676,8 +867,95 @@ func _TestForRangeStmt(t *testing.T) {
 	if v := ctx.Get(-1); v != nil {
 		t.Fatal("error:", v)
 	}
-	if v := ctx.Get(-2); v != int(15) {
+	if v := ctx.Get(-2); v != 17 {
 		t.Fatal("n:", v)
+	}
+}
+
+// -----------------------------------------------------------------------------
+
+var testNormalForClauses = map[string]testData{
+	"for_with_init_cond_post": {`
+					sum := 0
+					arr := [1,3,5,7]
+					for i := 0; i < len(arr); i++ {
+						sum+=arr[i]
+					}
+					println(sum)
+					`, []string{"16"}},
+	"for_with_cond_post": {`
+					sum := 0
+					arr := [1,3,5,7]
+					i := 0
+					for ; i < len(arr); i+=2 {
+						sum+=arr[i]
+					}
+					println(sum)
+					`, []string{"6"}},
+	"for_with_cond": {`
+					arr := [1,3,5,7]
+					i := 0
+					sum := 0
+					for ; i < len(arr) && i < 2; {
+						sum+=arr[i]
+						i++
+					}
+					println(sum)
+					`, []string{"4"}},
+	"for_with_init_cond": {`
+					arr := [1,3,5,7]
+					sum := 0
+					for i:=0; i < len(arr); {
+						sum+=arr[i]
+						i++
+					}
+					println(sum)
+					`, []string{"16"}},
+}
+
+func TestNormalForStmt(t *testing.T) {
+	for name, clause := range testNormalForClauses {
+		testForRangeStmt(name, t, asttest.NewSingleFileFS("/foo", "bar.gop", clause.clause), clause.wants)
+	}
+}
+
+func testForRangeStmt(name string, t *testing.T, fs *asttest.MemFS, wants []string) {
+	var results []string
+	selfPrintln := func(arity int, p *gop.Context) {
+		args := p.GetArgs(arity)
+		results = append(results, fmt.Sprintln(args...))
+		n, err := fmt.Println(args...)
+		p.Ret(arity, n, err)
+	}
+	libbuiltin.I.RegisterFuncvs(libbuiltin.I.Funcv("println", fmt.Print, selfPrintln))
+
+	fset := token.NewFileSet()
+	pkgs, err := parser.ParseFSDir(fset, fs, "/foo", nil, 0)
+	if err != nil || len(pkgs) != 1 {
+		t.Fatal(name+" : ParseFSDir failed:", err, len(pkgs))
+	}
+	bar := pkgs["main"]
+	b := exec.NewBuilder(nil)
+	_, noExecCtx, err := newPackage(b, bar, fset)
+	if err != nil || !noExecCtx {
+		t.Fatal(name+" :Compile failed:", err)
+	}
+	code := b.Resolve()
+	ctx := exec.NewContext(code)
+	ctx.Exec(0, code.Len())
+	if v := ctx.Get(-1); v != nil {
+		t.Fatal(name+" :error:", v)
+	}
+	if v := ctx.Get(-2); v != len(results[len(results)-1]) {
+		t.Fatal(name+" :n:", v)
+	}
+	if len(wants) != len(results) {
+		t.Fatal(name+" exec fail , wants", wants, ",actually", results)
+	}
+	for i := 0; i < len(wants); i++ {
+		if wants[i]+"\n" != results[i] {
+			t.Fatal(name+" exec fail", i, "result wants", wants[i], ",actually", results[i])
+		}
 	}
 }
 
@@ -717,3 +995,120 @@ func TestForIncDecStmt(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
+
+var testFallthroughClauses = map[string]testData{
+	"switch_all_fallthrough": {`
+					x:=0
+					switch x {
+					case 0:
+						println(x)
+						fallthrough
+					case 1:
+						x++
+						println(x)
+						fallthrough
+					default:
+						x=7
+						println(x)
+					}
+					`, []string{"0", "1", "7"}},
+	"switch_one_fallthrough": {`
+					x:=0
+					switch x {
+					case 0,1,2:
+						println(x)
+						fallthrough
+					case 3:
+						x++
+						println(x)
+					default:
+						x=7
+						println(x)
+					}
+					`, []string{"0", "1"}},
+	"switch__fallthrough": {`
+					x:=0
+					switch x {
+					case 0:
+						println(x)
+						fallthrough
+					case 1:
+						x++
+						println(x)
+					default:
+						x=7
+						println(x)
+					}
+					`, []string{"0", "1"}},
+	"switch_no_tag_fallthrough": {`
+					x:=0
+					switch {
+					case x==0:
+						println(x)
+						fallthrough
+					case x==1:
+						x++
+						println(x)
+						fallthrough
+					default:
+						x=7
+						println(x)
+					}
+					`, []string{"0", "1", "7"}},
+	"switch_no_tag_one_fallthrough": {`
+					x:=0
+					switch x {
+					case 0:
+						println(x)
+						fallthrough
+					case 1:
+						x++
+						println(x)
+					default:
+						x=7
+						println(x)
+					}
+					`, []string{"0", "1"}},
+	"switch_fallthrough_panic": {`
+					x:=0
+					switch x {
+					case 0:
+						println(x)
+						fallthrough
+					default:
+						x=7
+						println(x)
+					case 1:
+						x++
+						println(x)
+					fallthrough
+					}
+					`, []string{"0", "1"}},
+	"switch_fallthrough_out_panic": {`
+					x:=0
+					switch x {
+					case 0:
+						println(x)
+						fallthrough
+					default:
+						x=7
+						println(x)
+					case 1:
+						x++
+						println(x)
+					}
+					fallthrough
+					`, []string{"0", "1"}},
+}
+
+func TestFallthroughStmt(t *testing.T) {
+	for name, clause := range testFallthroughClauses {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+				}
+			}()
+			testForRangeStmt(name, t, asttest.NewSingleFileFS("/foo", "bar.gop", clause.clause), clause.wants)
+		}()
+	}
+}
