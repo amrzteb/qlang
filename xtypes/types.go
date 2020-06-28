@@ -14,7 +14,7 @@
  limitations under the License.
 */
 
-// Package xtypes provides `go/types` extended utilities. for example,
+// Package xtypes provides as an extension of `go/types`. for example,
 // converting `types.Type` into `reflect.Type`.
 package xtypes
 
